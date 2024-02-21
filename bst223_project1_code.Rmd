@@ -1,0 +1,353 @@
+---
+title: "223_Project1"
+author: "Shirley Lin"
+date: "2024-02-03"
+output: html_document
+---
+
+```{r}
+setwd("/Users/shirleylin/Desktop/BST 223")
+data <- read.csv("~/Desktop/BST 223/HS-Powers.txt", sep="", na.strings = "")
+```
+
+```{r}
+library(knitr)
+# find NA
+miss <- data[!complete.cases(data), ]
+miss
+
+weird <- rbind(miss,data[data$intact == "N",][2,],data[data$nsibs < 0, ][2,])
+weird
+kable(weird, caption = "Problematic Data", align = "c")
+```
+
+```{r}
+data[nrow(data) + 1,] = c("id","Yes", "Yes", "No","No",2.449,-1.143, 5,"No")
+data = data[-1360, ]
+data = data[-1075, ]
+str(data)
+```
+
+```{r}
+# data pre-processing
+
+# remove NA
+data <- data[complete.cases(data), ]
+
+data$hsgrad <- as.factor(data$hsgrad)
+data$nonwhite <- as.factor(data$nonwhite)
+data$mhs <- as.factor(data$mhs)
+data$fhs <- as.factor(data$fhs)
+data$nsibs <- as.numeric(data$nsibs)
+data$income <- as.numeric(data$income)
+data$asvab <- as.numeric(data$asvab)
+
+data$intact <- ifelse(data$intact == "N", "No", data$intact)
+data$intact <- as.factor(data$intact)
+
+str(data)
+```
+
+```{r}
+# combine mhs and fhs
+data$phs <- ifelse(data$mhs == "Yes" & data$fhs == "Yes", 2, 
+                   ifelse(data$mhs == "Yes" | data$fhs == "Yes", 1, 0))
+```
+
+
+```{r}
+library(ggplot2)
+par(mfrow=c(1,3))
+
+# Boxplot for income
+ggplot(data, aes(x = hsgrad, y = income)) +
+  geom_boxplot() +
+  labs(y = "Income")
+
+# Boxplot for asvab
+ggplot(data, aes(x = hsgrad, y = asvab)) +
+  geom_boxplot() +
+  labs(y = "ASVAB Score")
+
+# Boxplot for nsibs
+ggplot(data, aes(x = hsgrad, y = nsibs)) +
+  geom_boxplot() +
+  labs(y = "Number of Siblings")
+
+
+median(subset(data, hsgrad == "Yes")$income, na.rm = TRUE)
+median(subset(data, hsgrad == "Yes")$nsibs, na.rm = TRUE)
+median(subset(data, hsgrad == "No")$nsibs, na.rm = TRUE)
+```
+
+
+
+```{r}
+num.data <- data[,c(6:8)]
+pairs(num.data) ## pairwise scatter plots
+cor(num.data) ## pairwise correlations
+```
+
+
+```{r}
+# histogram of phs
+ggplot(data, aes(x = hsgrad, fill = factor(phs))) +
+  geom_bar(position = "fill") +
+  labs(title = "Histogram of Proportions by HS grad and Parent Education",
+       x = "hsgrad",
+       y = "Proportion",
+       fill = "phs")
+```
+
+
+```{r,results='asis'}
+library(knitr)
+hsgrad <- c(table(data$hsgrad)[1], table(data$hsgrad)[2])
+nonwhite <- c(table(data$nonwhite)[1], table(data$nonwhite)[2])
+mhs <- c(table(data$mhs)[1], table(data$mhs)[2])
+fhs <- c(table(data$fhs)[1], table(data$fhs)[2])
+intact <- c(table(data$intact)[1], table(data$intact)[2])
+
+# Combine into a data frame
+table_data <- data.frame(hsgrad, nonwhite, mhs, fhs, intact)
+kable(table_data, caption = "Summary of Variables", align = "c")
+```
+
+```{r}
+# Boxplot for nonwhite
+ggplot(data, aes(x = nonwhite, fill = hsgrad)) +
+  geom_bar() +
+  labs(x = "Nonwhite Status",
+       y = "Count",
+       fill = "hsgrad")
+
+# Boxplot for intact
+ggplot(data, aes(x = intact, fill = hsgrad)) +
+  geom_bar() +
+  labs(x = "Intact Family",
+       y = "Count",
+       fill = "hsgrad")
+```
+
+
+
+```{r,results = 'asis',echo=FALSE,message=FALSE,warning=FALSE}
+summary_stats <- data.frame(
+  Variable = c("income", "asvab", "nsibs"),
+  Min = c(min(data$income), min(data$asvab), min(data$nsibs)),
+  Max = c(max(data$income), max(data$asvab), max(data$nsibs)),
+  Median = c(median(data$income), median(data$asvab), median(data$nsibs)),
+  IQR = c(IQR(data$income), IQR(data$asvab), IQR(data$nsibs))
+)
+
+
+# Print the summary statistics table
+kable(summary_stats, caption = "Summary Statistics", align = "c")
+```
+
+
+```{r}
+# correlation for numerical
+num_data <- data[, c("income", "asvab", "nsibs")]
+cor(num_data)
+```
+
+```{r}
+# correlation for factor
+# Chi-squared test on contingency table
+
+# mhs,fhs
+chisq.test(table(data$mhs, data$fhs)) # significant correlation
+
+# mhs,nonwhite
+chisq.test(table(data$mhs, data$nonwhite)) # significant correlation
+
+# mhs,intact
+chisq.test(table(data$mhs, data$intact)) # significant correlation
+
+# nonwhite,intact
+chisq.test(table(data$nonwhite, data$intact)) # significant correlation
+```
+
+
+```{r}
+# LRT of overall effect
+overall <- glm(hsgrad~nonwhite+phs+nsibs+income+asvab+intact, family = binomial(), data = data)
+null <- glm(hsgrad ~ 1, family = binomial(), data = data)
+anova(null, overall, test = "Chisq")
+```
+
+
+```{r}
+library(MASS)
+# model building
+hs.glm <- glm(hsgrad~nonwhite+mhs+fhs+income+asvab+nsibs+intact,
+                   family = binomial(), data = data)
+hs.step <- stepAIC(hs.glm, trace = FALSE)  # default direction is backward when scope is missing
+hs.step$anova
+
+fit <- glm(hsgrad~nonwhite + mhs + fhs + income + asvab + intact,
+                   family = binomial(), data = data)
+summary(fit)
+anova(fit, test="Chi")
+```
+
+
+```{r}
+# remove fhs
+fit3 <- glm(hsgrad~nonwhite + mhs + income + asvab + intact,
+                   family = binomial(), data = data)
+summary(fit3)
+```
+
+
+```{r}
+res.P = residuals(fit3, type="pearson")
+res.D = residuals(fit3, type="deviance") 
+boxplot(cbind(res.P, res.D), names = c("Pearson", "Deviance"))
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(fit3$fitted.values, res.P, pch=16, cex=0.6, ylab='Pearson Residuals', xlab='Fitted Values')
+lines(smooth.spline(fit3$fitted.values, res.P, spar=0.9), col=2)
+abline(h=0, lty=2, col='grey')
+plot(fit3$fitted.values, res.D, pch=16, cex=0.6, ylab='Deviance Residuals', xlab='Fitted Values')
+lines(smooth.spline(fit3$fitted.values, res.D, spar=0.9), col=2)
+abline(h=0, lty=2, col='grey')
+```
+
+```{r}
+library(lawstat)
+
+runs.test(y = res.P, plot.it = TRUE)
+title(main='Pearson Residual Runs Test')
+runs.test(y = res.D, plot.it = TRUE)
+title(main='Deviance Residual Runs Test')
+```
+
+```{r}
+par(mfrow=c(1,1))
+
+# leverage points => influential points
+leverage = hatvalues(fit)
+plot(names(leverage), leverage, xlab="Index", type="h")
+points(names(leverage), leverage, pch=16, cex=0.6)
+p <- length(coef(fit))
+n <- nrow(data)
+abline(h=2*p/n,col=2,lwd=2,lty=2)
+infPts <- which(leverage>2*p/n)
+
+
+# ** Cook's Distance ----------------
+# high Cook's distance => influential points/outliers
+# leverage points with high Cook's distance => suspicious influential points & outliers
+#                    may need to be deleted -> check scatterplots
+
+cooks = cooks.distance(fit)
+
+
+           
+plot(cooks, ylab="Cook's Distance", pch=16, cex=0.6)
+points(infPts, cooks[infPts], pch=17, cex=0.8, col=2)
+
+susPts <- names(sort(cooks[infPts], decreasing=TRUE)[1:3])
+text(susPts, sort(cooks[infPts], decreasing=TRUE)[1:3], susPts, adj=c(1, -1), pos =1, cex=0.7, col=4)
+
+sort(cooks[infPts], decreasing=TRUE)[1:3]
+
+# remove data 1120(id:6897) and 1367(id:9051)
+outlier = data[c(1120,1367),]
+outlier
+data2 <- data[-c(1120,1367),]
+```
+
+
+```{r}
+# do everything with data2
+
+# model building
+hs.glm2 <- glm(hsgrad~nonwhite+mhs+fhs+income+asvab+nsibs+intact,
+                   family = binomial(), data = data2)
+hs.step2 <- stepAIC(hs.glm2, trace = FALSE)  # default direction is backward when scope is missing
+hs.step2$anova
+summary(hs.step2)
+
+fit2 <- glm(hsgrad ~ nonwhite + mhs + fhs + income + asvab + intact,
+                   family = binomial(), data = data2)
+summary(fit2)
+summary(fit)
+```
+
+
+
+```{r}
+hs.glm4 <- glm(hsgrad~nonwhite+phs+income+asvab+nsibs+intact,
+                   family = binomial(), data = data)
+hs.step4 <- stepAIC(hs.glm4, trace = FALSE)  # default direction is backward when scope is missing
+hs.step4$anova
+
+fit4 <- glm(hsgrad~nonwhite + phs + income + asvab + intact,
+                   family = binomial(), data = data)
+summary(fit4)
+```
+
+```{r}
+res.P = residuals(fit4, type="pearson")
+res.D = residuals(fit4, type="deviance") 
+boxplot(cbind(res.P, res.D), names = c("Pearson", "Deviance"))
+```
+
+```{r}
+par(mfrow=c(1,2))
+plot(fit4$fitted.values, res.P, pch=16, cex=0.6, ylab='Pearson Residuals', xlab='Fitted Values')
+lines(smooth.spline(fit4$fitted.values, res.P, spar=0.9), col=2)
+abline(h=0, lty=2, col='grey')
+plot(fit4$fitted.values, res.D, pch=16, cex=0.6, ylab='Deviance Residuals', xlab='Fitted Values')
+lines(smooth.spline(fit4$fitted.values, res.D, spar=0.9), col=2)
+abline(h=0, lty=2, col='grey')
+```
+
+
+```{r}
+par(mfrow=c(1,1))
+
+# leverage points => influential points
+leverage = hatvalues(fit4)
+plot(names(leverage), leverage, xlab="Index", type="h")
+points(names(leverage), leverage, pch=16, cex=0.6)
+p <- length(coef(fit4))
+n <- nrow(data)
+abline(h=2*p/n,col=2,lwd=2,lty=2)
+infPts <- which(leverage>2*p/n)
+
+
+# ** Cook's Distance ----------------
+# high Cook's distance => influential points/outliers
+# leverage points with high Cook's distance => suspicious influential points & outliers
+#                    may need to be deleted -> check scatterplots
+
+cooks = cooks.distance(fit)
+
+
+           
+plot(cooks, ylab="Cook's Distance", pch=16, cex=0.6)
+points(infPts, cooks[infPts], pch=17, cex=0.8, col=2)
+
+susPts <- names(sort(cooks[infPts], decreasing=TRUE)[1:3])
+text(susPts, sort(cooks[infPts], decreasing=TRUE)[1:3], susPts, adj=c(1, -1), pos =1, cex=0.7, col=4)
+
+sort(cooks[infPts], decreasing=TRUE)[1:3]
+
+# remove data 1120(id:6897) and 1367(id:9051)
+outlier = data[c(1120,1367),]
+outlier
+data2 <- data[-c(1120,1367),]
+```
+
+```{r}
+fit5 <- glm(hsgrad~nonwhite + phs + income + asvab + intact,
+                   family = binomial(), data = data2)
+summary(fit5)
+```
+
