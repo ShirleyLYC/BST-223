@@ -1,0 +1,400 @@
+---
+title: "223_Final Project"
+author: "Shirley Lin"
+date: "2024-03-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+df <- read.table("https://users.stat.ufl.edu/~winner/data/westnilesc.dat", header = TRUE)
+df <- df[,-2]
+colnames(df) <- c("county","birdcase","equinecase","farms","area",
+                  "population","humandensity","birdrate","equinerate")
+```
+
+```{r}
+df$equinenum = dplyr::case_when(df$equinecase %in% c(0) ~ 0, 
+                                      df$equinecase %in% c(1,2)   ~ 1,
+                                      TRUE  ~ 2)
+df$equinenum2 = dplyr::case_when(df$equinecase %in% c(0) ~ 0, 
+                                      df$equinecase %in% c(1)   ~ 1,
+                                      TRUE  ~ 2)
+```
+
+```{r}
+### step1 merge categories
+wnv = df
+wnv$equinecase = dplyr::case_when(df$equinecase %in% c(0) ~ "no", 
+                                      df$equinecase %in% c(1,2)   ~ "low",
+                                      TRUE  ~ "high")
+wnv$equinecase = factor(wnv$equinecase, levels = c("no","low","high"))
+
+
+# merge in another way
+wnv$equinecase2 = dplyr::case_when(df$equinecase %in% c(0) ~ "no", 
+                                      df$equinecase %in% c(1)   ~ "low",
+                                      TRUE  ~ "high")
+wnv$equinecase2 = factor(wnv$equinecase2, levels = c("no","low","high"))
+```
+
+```{r}
+library(ggplot2)
+
+df$category <- cut(df$equinecase, breaks = c(-Inf, 0, 1, Inf), labels = c("No", "Low", "High"))
+ggplot(data = df, aes(x = equinecase, fill = category)) +
+  geom_histogram(binwidth = 1, color = "black") +
+  labs(x = "Equine Cases", y = "Frequency") +
+  scale_x_continuous(breaks = seq(0, ceiling(max(df$equinecase)), by = 1)) +
+  scale_fill_manual(values = c("No" = "#F8766D", "Low" = "#00BA38", "High" = "#619CFF")) +
+  guides(fill = guide_legend(title = "Category"))
+
+
+custom_colors <- c("#F8766D", "#00BA38", "#619CFF")
+ggplot(wnv, aes(x = factor(equinecase2))) +
+  geom_bar(fill = custom_colors, color = "black") +
+  labs(x = "Equine Case Level", y = "Frequency", 
+       title = "Data within Each Level of Equine Case")
+
+sum(df$equinecase == 0) #25
+sum(df$equinecase == 1) #9
+sum(df$equinecase >= 2 & df$equinecase <= 10) #11
+```
+
+
+```{r}
+# correlation
+num = df[,c(2:7)]
+cor(num)
+```
+
+
+```{r}
+library(cowplot)
+
+# Boxplot for birdcase
+a=ggplot(wnv, aes(x = equinecase2, y = birdcase)) +
+  geom_boxplot() +
+  labs(x = "Equine Case", y = "Bird Case")
+
+subset(df, birdcase == 52)[,c(1,2,3,4,5,6,7)]
+
+# Boxplot for farms
+b=ggplot(wnv, aes(x = equinecase2, y = farms)) +
+  geom_boxplot() +
+  labs(x = "Equine Case", y = "Farms")
+
+# Boxplot for human density
+c=ggplot(wnv, aes(x = equinecase2, y = humandensity)) +
+  geom_boxplot() +
+  labs(x = "Equine Case", y = "Human Density")
+
+d=ggplot(wnv, aes(x = equinecase2, y = area)) +
+  geom_boxplot() +
+  labs(x = "Equine Case", y = "Area")
+
+plot_grid(a,b,c,d,nrow = 1)
+
+median(subset(wnv, equinecase == "no")$birdcase)
+```
+
+```{r}
+summary_df <- data.frame(
+  Min = sapply(df[c("equinecase", "birdcase", "farms", "humandensity","area")], min),
+  Median = sapply(df[c("equinecase", "birdcase", "farms", "humandensity","area")], median),
+  Mean = sapply(df[c("equinecase", "birdcase", "farms", "humandensity","area")], mean),
+  Max = sapply(df[c("equinecase", "birdcase", "farms", "humandensity","area")], max),
+  IQR = sapply(df[c("equinecase", "birdcase", "farms", "humandensity","area")], IQR)
+)
+
+# Print summary table using kable
+library(knitr)
+kable(summary_df, format = "markdown")
+```
+
+
+```{r}
+library(MASS)
+wnv.glm <- polr(formula = equinecase2 ~ birdcase+farms+humandensity+area, data = wnv, method='logistic')
+
+wnv.step <- stepAIC(wnv.glm,trace = FALSE) # AIC
+wnv.step$anova
+n <- nrow(wnv)
+wnv.step <- stepAIC(wnv.glm,k=log(n),trace = FALSE)  # default direction is backward when scope is missing
+wnv.step$anova
+
+BIC(wnv.glm)
+```
+
+$$
+\text { logit }E(Y | X = x) = \beta_0 +\beta_1 \text { birdcase } +\beta_2 \text { farms } +\beta_3 \text { humandensity } +\beta_4 \text { area } 
+$$
+f
+
+```{r}
+### step2 fit proportional odds model
+library(MASS)
+wnv.plrfull <- polr(formula = equinecase2 ~ birdcase+farms+humandensity+area, data = wnv, method='logistic')
+wnv.plr <- polr(formula = equinecase ~ birdcase+farms+humandensity, data = wnv, method='logistic')
+summary(wnv.plr)
+wnv.plr3 <- polr(formula = equinecase2 ~ birdcase+farms+humandensity, data = wnv, method='logistic')
+BIC(wnv.plr3)
+summary(wnv.plr3)
+
+
+# z values
+zval.plr <- c(3.785, 1.796, -2.087)
+# two-sided p-values
+pval.plr <- 2 * pnorm(abs(zval.plr), lower.tail=FALSE)
+pval.plr
+
+# Pearson residuals
+obslabel = cbind(wnv$equinecase2=="no", wnv$equinecase2=="low", wnv$equinecase2=="high") * 1
+prd_prob_po = fitted(wnv.plr3)
+resP.plr <- sapply(1:(ncol(obslabel)-1), function(m) {
+  obs_m <- rowSums(as.matrix(obslabel[,1:m]))
+  fit_m <- rowSums(as.matrix(prd_prob_po[,1:m]))
+  (obs_m - fit_m) / sqrt(fit_m * (1 - fit_m))
+})
+fitted_m.po = sapply(1:(ncol(obslabel)-1), function(m){
+  rowSums(as.matrix(prd_prob_po[,1:m]))
+})
+
+
+# plot for po
+par(mfrow=c(1,2))
+plot(fitted_m.po[,1], resP.plr[,1], xlab="po.fitted probability for class 1", ylab="Pearson residual",
+     sub = "spar = 1.3")
+lines(smooth.spline(x = fitted_m.po[,1], y = resP.plr[,1], spar=1.3), col=2); abline(h=0,lty=2)
+plot(fitted_m.po[,2], resP.plr[,2], xlab="po.fitted probability for class 1&2", ylab="Pearson residual",
+     sub = "spar = 1.5")
+lines(smooth.spline(x = fitted_m.po[,2], y = resP.plr[,2], spar=1.5), col=2); abline(h=0,lty=2)
+
+
+library(lawstat)
+runs.test(y = resP.plr, plot.it = TRUE) # runs not significant
+title(main='Pearson Residual Runs Test')
+```
+
+# remove outlier
+```{r}
+wnv2 = wnv[-c(29,30),]
+wnv.plr5 <- polr(formula = equinecase ~ birdcase+farms+humandensity, data = wnv2, method='logistic')
+summary(wnv.plr5)
+wnv.plr6 <- polr(formula = equinecase2 ~ birdcase+farms+humandensity, data = wnv2, method='logistic')
+summary(wnv.plr6)
+
+
+# z values
+zval.plr <- c(3.734, 1.889, -2.083)
+# two-sided p-values
+pval.plr <- 2 * pnorm(abs(zval.plr), lower.tail=FALSE)
+pval.plr
+
+# Pearson residuals
+obslabel = cbind(wnv2$equinecase2=="no", wnv2$equinecase2=="low", wnv2$equinecase2=="high") * 1
+prd_prob_po = fitted(wnv.plr6)
+resP.plr <- sapply(1:(ncol(obslabel)-1), function(m) {
+  obs_m <- rowSums(as.matrix(obslabel[,1:m]))
+  fit_m <- rowSums(as.matrix(prd_prob_po[,1:m]))
+  (obs_m - fit_m) / sqrt(fit_m * (1 - fit_m))
+})
+fitted_m.po = sapply(1:(ncol(obslabel)-1), function(m){
+  rowSums(as.matrix(prd_prob_po[,1:m]))
+})
+
+
+# plot for po
+par(mfrow=c(1,2))
+plot(fitted_m.po[,1], resP.plr[,1], xlab="po.fitted probability for class 1", ylab="Pearson residual",
+     sub = "spar = 1.2")
+lines(smooth.spline(x = fitted_m.po[,1], y = resP.plr[,1], spar=1.2), col=2); abline(h=0,lty=2)
+plot(fitted_m.po[,2], resP.plr[,2], xlab="po.fitted probability for class 1&2", ylab="Pearson residual",
+     sub = "spar = 1.4")
+lines(smooth.spline(x = fitted_m.po[,2], y = resP.plr[,2], spar=1.4), col=2); abline(h=0,lty=2)
+
+
+library(lawstat)
+runs.test(y = resP.plr, plot.it = TRUE) # runs not significant
+title(main='Pearson Residual Runs Test')
+```
+
+
+
+
+```{r}
+wnv.glm <- nnet::multinom(equinecase ~ birdcase+farms+humandensity+area, data=wnv2)
+
+wnv.step <- stepAIC(wnv.glm,trace = FALSE) # AIC
+wnv.step$anova
+n <- nrow(wnv)
+wnv.step <- stepAIC(wnv.glm,k=log(n),trace = FALSE)  # default direction is backward when scope is missing
+wnv.step$anova
+
+BIC(wnv.glm)
+```
+
+
+
+```{r}
+### step3 fit baseline odds model
+library(nnet)
+
+wnv.base = nnet::multinom(equinecase2 ~ birdcase+farms+humandensity, data=wnv)
+summary(wnv.base)
+BIC(wnv.base)
+
+
+wnv.base = nnet::multinom(equinecase2 ~ birdcase+farms+humandensity, data=wnv2)
+summary(wnv.base)
+
+# z values
+zval.base <- coef(wnv.base) / summary(wnv.base)$standard.errors
+# two-sided p-values
+pval.base <- 2 * pnorm(abs(zval.base), lower.tail=FALSE)
+pval.base
+
+
+prd_prob_bo2 = fitted(wnv.base)
+
+fitted_m.bo = sapply(2:(ncol(obslabel)), function(m){
+  fit_m <- prd_prob_bo2[rowSums(obslabel[,c(1,m)]) > 0,c(1,m)]
+  fit_m <- fit_m[,2] / rowSums(fit_m)
+})
+resP.bo <- sapply(2:ncol(obslabel), function(m) {
+  # baseline is column 1 here 
+  # otherwise you should replace "1" with the corresponding index and adjust the range of "m" accordingly
+  obs_m <- obslabel[rowSums(obslabel[,c(1,m)]) > 0, m]
+  fit_m <- prd_prob_bo2[rowSums(obslabel[,c(1,m)]) > 0,c(1,m)]
+  fit_m <- fit_m[,2] / rowSums(fit_m)
+  (obs_m - fit_m) / sqrt(fit_m * (1 - fit_m))
+})
+
+
+# plot for bo
+par(mfrow=c(1,2))
+plot(fitted_m.bo[[1]], resP.bo[[1]], xlab="bo.fitted probability for class 2 vs 1", ylab="Pearson residual",
+     sub = "spar = 1.2")
+lines(smooth.spline(x = fitted_m.bo[[1]], y = resP.bo[[1]], spar=1.2), col=2); abline(h=0,lty=2)
+plot(fitted_m.bo[[2]], resP.bo[[2]], xlab="bo.fitted probability for class 3 vs 1", ylab="Pearson residual",
+     sub = "spar = 1.0",ylim=c(-10,10))
+lines(smooth.spline(x = fitted_m.bo[[2]], y = resP.bo[[2]], spar=1), col=2); abline(h=0,lty=2)
+
+runs.test(y = resP.bo[[1]], plot.it = TRUE) # runs not significant
+title(main='Pearson Residual Runs Test')
+runs.test(y = resP.bo[[2]], plot.it = TRUE) # runs not significant
+title(main='Pearson Residual Runs Test')
+
+```
+
+
+
+
+# cooks before removal
+```{r}
+# fit 2 separate logistic model
+binom1 <- glm(equinecase2 ~ birdcase+farms+humandensity, family = binomial(), data = wnv %>% dplyr::filter(equinecase2 %in% c("no","low")))
+binom2 <- glm(equinecase2 ~ birdcase+farms+humandensity, family = binomial(), data = wnv %>% dplyr::filter(equinecase2 %in% c("no","high")))
+
+summary(binom1)
+summary(binom2)
+
+leverage1 = hatvalues(binom1)
+leverage2 = hatvalues(binom2)
+
+plot(names(leverage1), leverage1, xlab="Index", type="h",ylab="no vs low")
+points(names(leverage1), leverage1, pch=16, cex=0.6)
+p1 <- length(coef(binom1))
+n1 <- nrow(wnv %>% dplyr::filter(equinecase2 %in% c("no","low")))
+abline(h=2*p1/n1,col=2,lwd=2,lty=2)
+infPts1 <- which(leverage1>2*p1/n1)
+
+plot(names(leverage2), leverage2, xlab="Index", type="h",ylab="no vs high")
+points(names(leverage2), leverage2, pch=16, cex=0.6)
+p2 <- length(coef(binom2))
+n2 <- nrow(wnv %>% dplyr::filter(equinecase2 %in% c("no","high")))
+abline(h=2*p2/n2,col=2,lwd=2,lty=2)
+infPts2 <- which(leverage2>2*p2/n2)
+
+cooks1 = cooks.distance(binom1)
+cooks2 = cooks.distance(binom2)
+
+plot(cooks1, ylab="Cook's Distance for No vs Low", pch=16, cex=0.6)
+points(infPts1, cooks1[infPts1], pch=17, cex=0.8, col=2)
+susPts1 <- as.numeric(names(sort(cooks1[infPts1], decreasing=TRUE)[1:3]))
+text(susPts1, cooks1[susPts1], susPts1, adj=c(-0.1,-0.1), cex=0.7, col=4)
+
+plot(cooks2, ylab="Cook's Distance for No vs High", pch=16, cex=0.6)
+points(infPts2, cooks2[infPts2], pch=17, cex=0.8, col=2)
+susPts2 <- as.numeric(names(sort(cooks2[infPts2], decreasing=TRUE)[1:3]))
+text(susPts2, cooks2[susPts2], susPts2, adj=c(-0.1,-0.1), cex=0.7, col=4)
+```
+
+# cooks after removal
+```{r}
+# fit 2 separate logistic model
+binom1 <- glm(equinecase2 ~ birdcase+farms+humandensity, family = binomial(), data = wnv2 %>% dplyr::filter(equinecase2 %in% c("no","low")))
+binom2 <- glm(equinecase2 ~ birdcase+farms+humandensity, family = binomial(), data = wnv2 %>% dplyr::filter(equinecase2 %in% c("no","high")))
+
+summary(binom1)
+summary(binom2)
+
+leverage1 = hatvalues(binom1)
+leverage2 = hatvalues(binom2)
+
+plot(names(leverage1), leverage1, xlab="Index", type="h")
+points(names(leverage1), leverage1, pch=16, cex=0.6)
+p1 <- length(coef(binom1))
+n1 <- nrow(wnv %>% dplyr::filter(equinecase2 %in% c("no","low")))
+abline(h=2*p1/n1,col=2,lwd=2,lty=2)
+infPts1 <- which(leverage1>2*p1/n1)
+
+plot(names(leverage2), leverage2, xlab="Index", type="h")
+points(names(leverage2), leverage2, pch=16, cex=0.6)
+p2 <- length(coef(binom2))
+n2 <- nrow(wnv %>% dplyr::filter(equinecase2 %in% c("no","high")))
+abline(h=2*p2/n2,col=2,lwd=2,lty=2)
+infPts2 <- which(leverage2>2*p2/n2)
+
+cooks1 = cooks.distance(binom1)
+cooks2 = cooks.distance(binom2)
+
+plot(cooks1, ylab="Cook's Distance for No vs Low", pch=16, cex=0.6)
+points(infPts1, cooks1[infPts1], pch=17, cex=0.8, col=2)
+susPts1 <- as.numeric(names(sort(cooks1[infPts1], decreasing=TRUE)[1:3]))
+text(susPts1, cooks1[susPts1], susPts1, adj=c(-0.1,-0.1), cex=0.7, col=4)
+
+plot(cooks2, ylab="Cook's Distance for No vs High", pch=16, cex=0.6)
+points(infPts2, cooks2[infPts2], pch=17, cex=0.8, col=2)
+susPts2 <- as.numeric(names(sort(cooks2[infPts2], decreasing=TRUE)[1:3]))
+text(susPts2, cooks2[susPts2], susPts2, adj=c(-0.1,-0.1), cex=0.7, col=4)
+```
+
+```{r}
+# domain shift issue
+library(ggplot2)
+library(dplyr)
+plot_df1 = data.frame(x = wnv$birdcase,y=wnv$equinecase)
+ggplot(plot_df1) + geom_histogram(aes(x = wnv$birdcase,  fill = wnv$equinecase),color="#e9ecef", binwidth = 0.6, alpha=0.6, position='identity') 
+
+plot_df2 = data.frame(x = wnv$farms,y=wnv$equinecase)
+ggplot(plot_df2) + geom_histogram(aes(x = wnv$farms,  fill = wnv$equinecase),color="#e9ecef", alpha=0.6, position='identity') 
+
+plot_df3 = data.frame(x = wnv$humandensity,y=wnv$equinecase)
+ggplot(plot_df3) + geom_histogram(aes(x = wnv$humandensity,  fill = wnv$equinecase),color="#e9ecef", alpha=0.6, position='identity') 
+```
+
+
+# gam model
+```{r}
+library(mgcv)
+
+degf = 4
+df.gam <- mgcv::gam(list(df$equinenum ~ s(df$farms ,k=degf) + s(df$humandensity, k=degf) + s(df$birdcase, k=degf),
+                                      ~ s(df$farms, k=degf) + s(df$humandensity, k=degf) + s(df$birdcase, k=degf)),
+                    family = multinom(K = 2))
+summary(df.gam)
+par(mfrow=c(2,3))
+plot(df.gam)
+```
+
+
